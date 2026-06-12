@@ -13,6 +13,13 @@ no runtime, no scripting.
   while any fullscreen or maximized window covers the same output
 - Sleeps in `poll()` on the Wayland fd — no timers, no busy loops, no polling
 - Frame cap via `--fps` (default 24)
+- **Spotify-reactive** (optional, PipeWire): fog pulses with loudness and the
+  tint sways in tone/strength — never hue — while Spotify plays; returns to
+  the exact `--color` when it stops. The capture stream targets Spotify's
+  node by `object.serial` (a plain id target silently falls back to the
+  microphone), uses 50 ms buffers (~20 wakeups/s only while audio flows),
+  joins the same `poll()`, and deactivates whenever every output is paused.
+  Without libpipewire or without Spotify, the feature costs nothing.
 
 ## Build
 

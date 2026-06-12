@@ -11,6 +11,7 @@
 
 #include "wayland.h"
 #include "shader.h"
+#include "audio.h"
 
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
 #include "wlr-foreign-toplevel-management-unstable-v1-client-protocol.h"
@@ -56,6 +57,8 @@ void output_render(struct fogwall_output *o)
         st->u_resolution = glGetUniformLocation(st->program, "iResolution");
         st->u_time = glGetUniformLocation(st->program, "iTime");
         st->u_highlight = glGetUniformLocation(st->program, "uHighlight");
+        st->u_level = glGetUniformLocation(st->program, "uLevel");
+        st->u_music = glGetUniformLocation(st->program, "uMusic");
         st->a_pos = glGetAttribLocation(st->program, "pos");
     }
 
@@ -66,6 +69,8 @@ void output_render(struct fogwall_output *o)
     glUniform1f(st->u_time, (float)fmod(t, FOG_TIME_PERIOD));
     glUniform3f(st->u_highlight, st->cfg.color[0], st->cfg.color[1],
                 st->cfg.color[2]);
+    glUniform1f(st->u_level, st->audio_level);
+    glUniform1f(st->u_music, st->audio_music);
 
     static const GLfloat verts[] = { -1.0f, -1.0f, 3.0f, -1.0f, -1.0f, 3.0f };
     glEnableVertexAttribArray((GLuint)st->a_pos);
@@ -128,6 +133,17 @@ static void apply_pause(struct fogwall_output *o)
         /* The render loop fully stopped while paused; kick it back on. */
         output_render(o);
     }
+    /* No visible output, no reason to capture audio. */
+    struct fogwall_state *st = o->state;
+    bool any_visible = false;
+    struct fogwall_output *other;
+    wl_list_for_each(other, &st->outputs, link) {
+        if (other->surface != NULL && !other->paused) {
+            any_visible = true;
+            break;
+        }
+    }
+    audio_set_active(st, any_visible);
 }
 
 void output_set_paused_hypr(struct fogwall_output *o, bool paused)

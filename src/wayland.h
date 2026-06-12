@@ -31,6 +31,8 @@ struct fogwall_state {
     GLint u_resolution;
     GLint u_time;
     GLint u_highlight;
+    GLint u_level;
+    GLint u_music;
     GLint a_pos;
 
     int64_t start_ms;
@@ -41,6 +43,11 @@ struct fogwall_state {
     int hypr_fd;
     char hypr_buf[4096];
     size_t hypr_buf_len;
+
+    /* Spotify loudness (see audio.h); -1 when unavailable */
+    int audio_fd;
+    float audio_level; /* loudness envelope 0..1, fast */
+    float audio_music; /* "music is playing" envelope 0..1, slow release */
 };
 
 struct fogwall_output {

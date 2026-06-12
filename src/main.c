@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include <errno.h>
+#include <math.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdio.h>
@@ -10,6 +11,7 @@
 
 #include "wayland.h"
 #include "hypr.h"
+#include "audio.h"
 
 static volatile sig_atomic_t quit = 0;
 
@@ -100,11 +102,14 @@ int main(int argc, char *argv[])
         return 1;
     }
     hypr_init(&state);
+    audio_init(&state);
 
     const int64_t interval = 1000 / state.cfg.fps;
-    struct pollfd pfds[2] = {
+    int64_t last_decay_ms = now_ms();
+    struct pollfd pfds[3] = {
         { .fd = wl_display_get_fd(state.display), .events = POLLIN },
         { .fd = state.hypr_fd, .events = POLLIN },
+        { .fd = state.audio_fd, .events = POLLIN },
     };
 
     /* One iteration per wakeup; wakeups happen only on Wayland events
@@ -138,9 +143,10 @@ int main(int argc, char *argv[])
             }
         }
 
-        pfds[1].fd = state.hypr_fd; /* may be closed at runtime */
-        int nfds = state.hypr_fd >= 0 ? 2 : 1;
-        int ret = poll(pfds, nfds, timeout);
+        /* fds may be closed at runtime; poll() ignores negative fds */
+        pfds[1].fd = state.hypr_fd;
+        pfds[2].fd = state.audio_fd;
+        int ret = poll(pfds, 3, timeout);
         if (ret < 0) {
             wl_display_cancel_read(state.display);
             if (errno == EINTR) {
@@ -159,11 +165,35 @@ int main(int argc, char *argv[])
         if (wl_display_dispatch_pending(state.display) < 0) {
             goto disconnected;
         }
-        if (nfds == 2 && (pfds[1].revents & (POLLIN | POLLHUP))) {
+        if (pfds[1].revents & (POLLIN | POLLHUP)) {
             hypr_handle_events(&state);
+        }
+        if (pfds[2].revents & (POLLERR | POLLHUP)) {
+            audio_finish(&state);
+        } else if (pfds[2].revents & POLLIN) {
+            audio_dispatch(&state);
         }
 
         now = now_ms();
+
+        /* Wall-clock release of the music envelopes — audio buffers stop
+         * arriving the instant Spotify pauses, so decay can't live in the
+         * capture callback. ~200 ms for the pulse, ~1.5 s for presence. */
+        float dt = (float)(now - last_decay_ms) / 1000.0f;
+        last_decay_ms = now;
+        if (state.audio_level > 0.0f) {
+            state.audio_level *= expf(-dt * 5.0f);
+            if (state.audio_level < 0.004f) {
+                state.audio_level = 0.0f;
+            }
+        }
+        if (state.audio_music > 0.0f) {
+            state.audio_music *= expf(-dt * 0.7f);
+            if (state.audio_music < 0.01f) {
+                state.audio_music = 0.0f;
+            }
+        }
+
         wl_list_for_each(o, &state.outputs, link) {
             if (o->frame_ready && !o->paused &&
                     now - o->last_frame_ms >= interval) {
@@ -172,12 +202,14 @@ int main(int argc, char *argv[])
         }
     }
 
+    audio_finish(&state);
     hypr_finish(&state);
     wayland_finish(&state);
     return 0;
 
 disconnected:
     fprintf(stderr, "fogwall: lost connection to Wayland display\n");
+    audio_finish(&state);
     hypr_finish(&state);
     wayland_finish(&state);
     return 1;

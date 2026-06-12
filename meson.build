@@ -17,6 +17,11 @@ egl = dependency('egl')
 glesv2 = dependency('glesv2')
 libm = cc.find_library('m', required: false)
 
+pipewire = dependency('libpipewire-0.3', required: false)
+if pipewire.found()
+  add_project_arguments('-DHAVE_PIPEWIRE', language: 'c')
+endif
+
 wayland_scanner = find_program('wayland-scanner')
 python = find_program('python3')
 
@@ -67,7 +72,8 @@ executable(
     'src/egl.c',
     'src/shader.c',
     'src/hypr.c',
+    'src/audio.c',
   ] + protocol_srcs + shader_hdrs,
-  dependencies: [wayland_client, wayland_egl, egl, glesv2, libm],
+  dependencies: [wayland_client, wayland_egl, egl, glesv2, libm, pipewire],
   install: true,
 )
