@@ -101,11 +101,13 @@ static const struct wl_callback_listener frame_listener = {
 static bool toplevel_on_output(struct fogwall_toplevel *t,
                                struct fogwall_output *o)
 {
-    /* No output_enter received (yet): be conservative and treat the
-     * toplevel as covering every output — better a paused wallpaper than a
-     * GPU burning behind a game. */
+    /* Some compositors (Hyprland) never send output_enter. Pausing every
+     * output for one fullscreen window would freeze visible wallpapers on
+     * other monitors, so only pause outputs we can attribute. A genuinely
+     * covered output is still cheap: the compositor stops sending frame
+     * callbacks to occluded surfaces, which idles the render loop anyway. */
     if (t->n_outputs == 0) {
-        return true;
+        return wl_list_length(&t->state->outputs) == 1;
     }
     for (int i = 0; i < t->n_outputs; i++) {
         if (t->outputs[i] == o->wl_output) {
@@ -113,6 +115,25 @@ static bool toplevel_on_output(struct fogwall_toplevel *t,
         }
     }
     return false;
+}
+
+static void apply_pause(struct fogwall_output *o)
+{
+    bool covered = o->paused_proto || o->paused_hypr;
+    if (covered == o->paused) {
+        return;
+    }
+    o->paused = covered;
+    if (!covered && o->frame_cb == NULL && !o->frame_ready) {
+        /* The render loop fully stopped while paused; kick it back on. */
+        output_render(o);
+    }
+}
+
+void output_set_paused_hypr(struct fogwall_output *o, bool paused)
+{
+    o->paused_hypr = paused;
+    apply_pause(o);
 }
 
 static void recompute_pause(struct fogwall_state *st)
@@ -136,14 +157,8 @@ static void recompute_pause(struct fogwall_state *st)
                 break;
             }
         }
-        if (covered == o->paused) {
-            continue;
-        }
-        o->paused = covered;
-        if (!covered && o->frame_cb == NULL && !o->frame_ready) {
-            /* The render loop fully stopped while paused; kick it back on. */
-            output_render(o);
-        }
+        o->paused_proto = covered;
+        apply_pause(o);
     }
 }
 

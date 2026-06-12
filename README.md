@@ -90,16 +90,27 @@ so fullscreen/maximized detection is impossible with it (its XML is still
 vendored in `protocols/` for reference). The companion ext protocol that
 will carry state had not landed in wayland-protocols on this system.
 
-fogwall therefore uses `wlr-foreign-toplevel-management-unstable-v1`
-(version ≥ 2 for the `fullscreen` state), which Hyprland implements. The
-pause logic lives in `recompute_pause()` in `src/wayland.c`: an *activated*
-(focused), non-minimized toplevel that is fullscreen or maximized on an
-output pauses rendering on that output; rendering resumes when it closes,
-minimizes, loses fullscreen — or just loses focus. The `activated` check is
-required because compositors keep reporting fullscreen for windows parked on
-hidden workspaces. The covering-but-unfocused case is handled by the
-compositor itself: occluded surfaces stop receiving frame callbacks, which
-stops fogwall's render loop just the same.
+Worse: Hyprland implements `wlr-foreign-toplevel-management-unstable-v1`
+but never sends `output_enter` (verified with `WAYLAND_DEBUG=1`), so a
+fullscreen toplevel cannot be attributed to a monitor — and Hyprland keeps
+sending frame callbacks to background-layer surfaces under fullscreen
+windows, so occlusion does not pause anything either.
+
+fogwall therefore uses two mechanisms (`src/wayland.c`, `src/hypr.c`):
+
+1. **Hyprland IPC** (preferred, automatic when `$HYPRLAND_INSTANCE_SIGNATURE`
+   is set): `.socket2.sock` is a second fd in the main `poll()` — no
+   polling. On fullscreen/workspace/window events it queries `j/monitors` +
+   `j/workspaces` and pauses every output whose active workspace
+   `hasfullscreen`. Exact per-monitor attribution.
+2. **wlr-foreign-toplevel state** (fallback for other wlroots compositors):
+   an *activated*, non-minimized, fullscreen-or-maximized toplevel pauses
+   the outputs it `output_enter`-ed. The `activated` check avoids freezing
+   for fullscreen windows parked on hidden workspaces.
+
+While paused, fogwall renders nothing and requests no frame callbacks; its
+fd has no traffic, so it sits in `poll()` indefinitely. Measured: ~150
+wakeups/s active (2 outputs) → ~1 wakeup/s, 0 CPU ticks paused.
 
 ## License
 

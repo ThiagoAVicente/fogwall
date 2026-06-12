@@ -36,6 +36,11 @@ struct fogwall_state {
     int64_t start_ms;
     bool ready;   /* initial roundtrips done */
     bool running;
+
+    /* Hyprland IPC (see hypr.h); -1 when not under Hyprland */
+    int hypr_fd;
+    char hypr_buf[4096];
+    size_t hypr_buf_len;
 };
 
 struct fogwall_output {
@@ -53,8 +58,10 @@ struct fogwall_output {
 
     int32_t width, height;
     bool configured;
-    bool paused;       /* a fullscreen/maximized toplevel covers this output */
-    bool frame_ready;  /* frame callback fired; render is gated by --fps */
+    bool paused;        /* effective: paused_proto || paused_hypr */
+    bool paused_proto;  /* via wlr-foreign-toplevel state */
+    bool paused_hypr;   /* via Hyprland IPC hasfullscreen */
+    bool frame_ready;   /* frame callback fired; render is gated by --fps */
     int64_t last_frame_ms;
 };
 
@@ -73,6 +80,7 @@ struct fogwall_toplevel {
 bool wayland_init(struct fogwall_state *state);
 void wayland_finish(struct fogwall_state *state);
 void output_render(struct fogwall_output *output);
+void output_set_paused_hypr(struct fogwall_output *output, bool paused);
 int64_t now_ms(void);
 
 #endif

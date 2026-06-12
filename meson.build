@@ -66,6 +66,7 @@ executable(
     'src/wayland.c',
     'src/egl.c',
     'src/shader.c',
+    'src/hypr.c',
   ] + protocol_srcs + shader_hdrs,
   dependencies: [wayland_client, wayland_egl, egl, glesv2, libm],
   install: true,

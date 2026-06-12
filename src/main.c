@@ -9,6 +9,7 @@
 #include <wayland-client.h>
 
 #include "wayland.h"
+#include "hypr.h"
 
 static volatile sig_atomic_t quit = 0;
 
@@ -98,11 +99,12 @@ int main(int argc, char *argv[])
         wayland_finish(&state);
         return 1;
     }
+    hypr_init(&state);
 
     const int64_t interval = 1000 / state.cfg.fps;
-    struct pollfd pfd = {
-        .fd = wl_display_get_fd(state.display),
-        .events = POLLIN,
+    struct pollfd pfds[2] = {
+        { .fd = wl_display_get_fd(state.display), .events = POLLIN },
+        { .fd = state.hypr_fd, .events = POLLIN },
     };
 
     /* One iteration per wakeup; wakeups happen only on Wayland events
@@ -136,7 +138,9 @@ int main(int argc, char *argv[])
             }
         }
 
-        int ret = poll(&pfd, 1, timeout);
+        pfds[1].fd = state.hypr_fd; /* may be closed at runtime */
+        int nfds = state.hypr_fd >= 0 ? 2 : 1;
+        int ret = poll(pfds, nfds, timeout);
         if (ret < 0) {
             wl_display_cancel_read(state.display);
             if (errno == EINTR) {
@@ -145,7 +149,7 @@ int main(int argc, char *argv[])
             perror("fogwall: poll");
             break;
         }
-        if (ret > 0 && (pfd.revents & POLLIN)) {
+        if (ret > 0 && (pfds[0].revents & POLLIN)) {
             if (wl_display_read_events(state.display) < 0) {
                 goto disconnected;
             }
@@ -154,6 +158,9 @@ int main(int argc, char *argv[])
         }
         if (wl_display_dispatch_pending(state.display) < 0) {
             goto disconnected;
+        }
+        if (nfds == 2 && (pfds[1].revents & (POLLIN | POLLHUP))) {
+            hypr_handle_events(&state);
         }
 
         now = now_ms();
@@ -165,11 +172,13 @@ int main(int argc, char *argv[])
         }
     }
 
+    hypr_finish(&state);
     wayland_finish(&state);
     return 0;
 
 disconnected:
     fprintf(stderr, "fogwall: lost connection to Wayland display\n");
+    hypr_finish(&state);
     wayland_finish(&state);
     return 1;
 }
