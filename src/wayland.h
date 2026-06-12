@@ -66,8 +66,8 @@ struct fogwall_toplevel {
     struct zwlr_foreign_toplevel_handle_v1 *handle;
     struct wl_output *outputs[FOGWALL_TOPLEVEL_MAX_OUTPUTS];
     int n_outputs;
-    bool fullscreen, maximized, minimized;
-    bool pend_fullscreen, pend_maximized, pend_minimized;
+    bool fullscreen, maximized, minimized, activated;
+    bool pend_fullscreen, pend_maximized, pend_minimized, pend_activated;
 };
 
 bool wayland_init(struct fogwall_state *state);

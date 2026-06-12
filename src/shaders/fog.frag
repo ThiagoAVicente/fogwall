@@ -5,11 +5,10 @@ uniform vec2 iResolution;
 uniform float iTime;      /* seconds, wrapped to FOG_TIME_PERIOD by the app */
 uniform vec3 uHighlight;
 
-/* Drift follows a closed circle so the wrapped iTime never causes a visible
- * jump: one full revolution per FOG_TIME_PERIOD (2400 s).
- * DRIFT_ANGULAR = 2*pi / 2400 — keep in sync with FOG_TIME_PERIOD in wayland.c. */
-#define DRIFT_ANGULAR 0.00261799388
-#define DRIFT_RADIUS 8.5
+/* All motion is built from sin(k * t) with integer k, where t sweeps 0..2*pi
+ * once per FOG_TIME_PERIOD (480 s) — so the wrapped iTime never jumps.
+ * TAU_OVER_PERIOD = 2*pi / 480 — keep in sync with wayland.c. */
+#define TAU_OVER_PERIOD 0.01308996939
 
 float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
@@ -38,13 +37,34 @@ float fbm(vec2 p) {
     return v;
 }
 
+/* Soft fog mass: gaussian falloff, edge raggedness driven by the fbm field */
+float blob(vec2 uv, vec2 center, float radius, float field) {
+    float d = length(uv - center) + 0.22 * (field - 0.5);
+    return exp(-(d * d) / (radius * radius));
+}
+
 void main() {
-    vec2 uv = gl_FragCoord.xy / iResolution.y;
-    float ang = iTime * DRIFT_ANGULAR;
-    vec2 drift = DRIFT_RADIUS * vec2(cos(ang), sin(ang));
-    float f = fbm(uv * 3.0 + drift);
-    f = f * f * (3.0 - 2.0 * f);
-    vec3 base = vec3(0.04, 0.05, 0.08);
-    vec3 col = mix(base, uHighlight, f * 0.55);
+    vec2 uv = (gl_FragCoord.xy - 0.5 * iResolution.xy) / iResolution.y;
+    float t = iTime * TAU_OVER_PERIOD;
+
+    /* shared fog texture, slowly swirling against the blob motion */
+    vec2 fdrift = 1.5 * vec2(cos(3.0 * t), sin(2.0 * t));
+    float field = fbm(uv * 2.6 + fdrift);
+
+    /* 4 big fog masses on Lissajous paths — mismatched harmonics make each
+     * one keep changing direction instead of orbiting */
+    float glow = 0.0;
+    glow += blob(uv, 0.45 * vec2(sin(2.0 * t + 0.5), sin(3.0 * t + 1.7)),
+                 0.38, field);
+    glow += blob(uv, 0.50 * vec2(sin(3.0 * t + 2.9), sin(5.0 * t + 0.4)),
+                 0.33, field);
+    glow += blob(uv, 0.55 * vec2(sin(5.0 * t + 4.2), sin(2.0 * t + 3.1)),
+                 0.30, field);
+    glow += blob(uv, 0.42 * vec2(sin(7.0 * t + 1.1), sin(4.0 * t + 5.0)),
+                 0.36, field);
+
+    /* black base; soft-knee so overlapping masses don't clip */
+    float fog = glow * (0.30 + 0.90 * field);
+    vec3 col = uHighlight * (1.0 - exp(-fog * 1.4));
     gl_FragColor = vec4(col, 1.0);
 }

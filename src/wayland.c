@@ -17,10 +17,10 @@
 #include "fog_frag.h"
 #include "quad_vert.h"
 
-/* Drift loops on a closed circle with this period (seconds); iTime is wrapped
- * to it so float precision never degrades. Must match DRIFT_ANGULAR in
- * fog.frag (2*pi / FOG_TIME_PERIOD). */
-#define FOG_TIME_PERIOD 2400.0
+/* All shader motion loops with this period (seconds); iTime is wrapped to it
+ * so float precision never degrades. Must match TAU_OVER_PERIOD in fog.frag
+ * (2*pi / FOG_TIME_PERIOD). */
+#define FOG_TIME_PERIOD 480.0
 
 int64_t now_ms(void)
 {
@@ -122,7 +122,13 @@ static void recompute_pause(struct fogwall_state *st)
         bool covered = false;
         struct fogwall_toplevel *t;
         wl_list_for_each(t, &st->toplevels, link) {
-            if (t->minimized || !(t->fullscreen || t->maximized)) {
+            /* Require `activated`: compositors keep reporting fullscreen for
+             * windows parked on hidden workspaces, which would wrongly pause
+             * a perfectly visible wallpaper. A covering-but-unfocused window
+             * is still handled: the compositor stops sending frame callbacks
+             * to occluded surfaces, which stops this loop on its own. */
+            if (t->minimized || !t->activated ||
+                    !(t->fullscreen || t->maximized)) {
                 continue;
             }
             if (toplevel_on_output(t, o)) {
@@ -187,6 +193,7 @@ static void toplevel_handle_state(void *data,
     t->pend_fullscreen = false;
     t->pend_maximized = false;
     t->pend_minimized = false;
+    t->pend_activated = false;
     uint32_t *s;
     wl_array_for_each(s, states) {
         switch (*s) {
@@ -198,6 +205,9 @@ static void toplevel_handle_state(void *data,
             break;
         case ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_STATE_MINIMIZED:
             t->pend_minimized = true;
+            break;
+        case ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_STATE_ACTIVATED:
+            t->pend_activated = true;
             break;
         default:
             break;
@@ -213,6 +223,7 @@ static void toplevel_handle_done(void *data,
     t->fullscreen = t->pend_fullscreen;
     t->maximized = t->pend_maximized;
     t->minimized = t->pend_minimized;
+    t->activated = t->pend_activated;
     recompute_pause(t->state);
 }
 

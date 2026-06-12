@@ -4,14 +4,15 @@ Ultra-lightweight procedural fog live wallpaper for Hyprland (and any
 wlroots-style Wayland compositor with layer-shell). Plain C99, one binary,
 no runtime, no scripting.
 
-- Animated FBM fog (4 octaves, slow circular drift) rendered in a GLSL
-  fragment shader via EGL + OpenGL ES 2.0
+- Black base with 4 big fog masses in the tint color, wandering on
+  Lissajous paths (constantly changing direction), textured by 4-octave FBM
+  noise — GLSL fragment shader via EGL + OpenGL ES 2.0; the whole animation
+  loops seamlessly every 8 min
 - Runs on the `background` layer via `wlr-layer-shell-unstable-v1`
 - **Pauses completely** (zero CPU, zero GPU submissions, no frame callbacks)
   while any fullscreen or maximized window covers the same output
 - Sleeps in `poll()` on the Wayland fd — no timers, no busy loops, no polling
-- Frame cap via `--fps` (default 24); drift loops seamlessly every 40 min so
-  shader time precision never degrades
+- Frame cap via `--fps` (default 24)
 
 ## Build
 
@@ -43,28 +44,42 @@ Hyprland autostart:
 exec-once = fogwall --color "#88aaff"
 ```
 
-## Measuring the budget
+Stop any other wallpaper daemon (awww, hyprpaper, swww, …) first — whichever
+background-layer surface is created last stacks on top, so a running daemon
+can cover fogwall entirely (fogwall then receives no frame callbacks and
+idles, but you won't see the fog).
 
-RSS after 30 s of runtime:
+On hybrid Intel/NVIDIA laptops, force the Mesa EGL vendor so the NVIDIA
+userspace (~80 MB of mappings, ~14 MB extra Pss_Anon) never loads:
 
-```sh
-cat /proc/$(pidof fogwall)/status | grep VmRSS
+```
+exec-once = env __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json fogwall --color "#88aaff"
 ```
 
-`VmRSS` includes shared read-only pages of libwayland/libEGL/libGLESv2 and
-the Mesa driver. The anonymous footprint of fogwall itself is what matters:
+## Measured (Hyprland, 2×1920 outputs, 24 fps, Intel iGPU via Mesa)
 
 ```sh
-grep -A1 anon /proc/$(pidof fogwall)/smaps_rollup
+grep VmRSS /proc/$(pidof fogwall)/status
+grep -E 'Pss_Anon|Shared_Clean' /proc/$(pidof fogwall)/smaps_rollup
 ```
 
-Target: `Pss_Anon` < 3 MB. CPU steady-state should read 0.0 % in `top` — the
-process makes ~2 wakeups per frame (frame callback + fps deadline) and none
-at all while paused.
+| Metric | Active (both outputs) | Fullscreen window focused |
+|--------|----------------------|---------------------------|
+| CPU (ticks/10 s) | 13 (≈1.3 % of one core) | **0** |
+| Wakeups/s | ~147 (2–3 per frame per output) | **~1** |
+| `Pss_Anon` | 8.2 MB | same |
+| `VmRSS` | 136 MB | same |
 
-To verify the fullscreen pause: start a fullscreen window (or a game) on the
-same output and watch `top` — fogwall must drop to 0 wakeups; no GL calls and
-no frame callbacks are scheduled until the window unfullscreens or closes.
+`VmRSS` is dominated by 128 MB of `Shared_Clean` read-only pages of
+libLLVM + libgallium — Mesa's shader compiler, already resident for the
+compositor itself, so fogwall's marginal cost is the 8.2 MB of `Pss_Anon`
+(GL driver heap, command buffers). The original <5 MB VmRSS target is not
+achievable with any GL driver stack; `Pss_Anon` is the honest number. If the
+NVIDIA EGL vendor also loads (hybrid laptops, see above), `Pss_Anon` grows
+to ~22 MB.
+
+While paused, no GL calls are made and no frame callbacks are scheduled —
+CPU and GPU cost is literally zero until the fullscreen window goes away.
 
 ## Pause/resume: protocol note
 
@@ -77,10 +92,14 @@ will carry state had not landed in wayland-protocols on this system.
 
 fogwall therefore uses `wlr-foreign-toplevel-management-unstable-v1`
 (version ≥ 2 for the `fullscreen` state), which Hyprland implements. The
-pause logic lives in `recompute_pause()` in `src/wayland.c`: any
-non-minimized toplevel that is fullscreen or maximized on an output pauses
-rendering on that output; rendering resumes when it closes, minimizes or
-unfullscreens.
+pause logic lives in `recompute_pause()` in `src/wayland.c`: an *activated*
+(focused), non-minimized toplevel that is fullscreen or maximized on an
+output pauses rendering on that output; rendering resumes when it closes,
+minimizes, loses fullscreen — or just loses focus. The `activated` check is
+required because compositors keep reporting fullscreen for windows parked on
+hidden workspaces. The covering-but-unfocused case is handled by the
+compositor itself: occluded surfaces stop receiving frame callbacks, which
+stops fogwall's render loop just the same.
 
 ## License
 
