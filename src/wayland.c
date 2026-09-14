@@ -59,6 +59,7 @@ void output_render(struct fogwall_output *o)
         st->u_highlight = glGetUniformLocation(st->program, "uHighlight");
         st->u_level = glGetUniformLocation(st->program, "uLevel");
         st->u_music = glGetUniformLocation(st->program, "uMusic");
+        st->u_beat = glGetUniformLocation(st->program, "uBeat");
         st->a_pos = glGetAttribLocation(st->program, "pos");
     }
 
@@ -71,6 +72,7 @@ void output_render(struct fogwall_output *o)
                 st->cfg.color[2]);
     glUniform1f(st->u_level, st->audio_level);
     glUniform1f(st->u_music, st->audio_music);
+    glUniform1f(st->u_beat, st->audio_beat);
 
     static const GLfloat verts[] = { -1.0f, -1.0f, 3.0f, -1.0f, -1.0f, 3.0f };
     glEnableVertexAttribArray((GLuint)st->a_pos);

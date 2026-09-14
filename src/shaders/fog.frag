@@ -6,6 +6,7 @@ uniform float iTime;      /* seconds, wrapped to FOG_TIME_PERIOD by the app */
 uniform vec3 uHighlight;
 uniform float uLevel;     /* music loudness 0..1; 0 when nothing plays */
 uniform float uMusic;     /* music presence 0..1; gates the hue cycling */
+uniform float uBeat;      /* onset kick 0..1, fast decay; nudges path speed */
 
 /* All motion is built from sin(k * t) with integer k, where t sweeps 0..2*pi
  * once per FOG_TIME_PERIOD (480 s) — so the wrapped iTime never jumps.
@@ -53,17 +54,21 @@ void main() {
     vec2 fdrift = 1.5 * vec2(cos(3.0 * t), sin(2.0 * t));
     float field = fbm(uv * 2.6 + fdrift);
 
+    /* Beat kick nudges path speed only (not the noise field) — a sharp,
+     * short-lived lurch in blob motion without disturbing the fog texture. */
+    float tp = t * (1.0 + 0.5 * uBeat);
+
     /* 4 big fog masses on Lissajous paths — mismatched harmonics make each
      * one keep changing direction instead of orbiting. Music swells them. */
     float pulse = 1.0 + 0.25 * uLevel;
     float glow = 0.0;
-    glow += blob(uv, 0.45 * vec2(sin(2.0 * t + 0.5), sin(3.0 * t + 1.7)),
+    glow += blob(uv, 0.45 * vec2(sin(2.0 * tp + 0.5), sin(3.0 * tp + 1.7)),
                  0.38 * pulse, field);
-    glow += blob(uv, 0.50 * vec2(sin(3.0 * t + 2.9), sin(5.0 * t + 0.4)),
+    glow += blob(uv, 0.50 * vec2(sin(3.0 * tp + 2.9), sin(5.0 * tp + 0.4)),
                  0.33 * pulse, field);
-    glow += blob(uv, 0.55 * vec2(sin(5.0 * t + 4.2), sin(2.0 * t + 3.1)),
+    glow += blob(uv, 0.55 * vec2(sin(5.0 * tp + 4.2), sin(2.0 * tp + 3.1)),
                  0.30 * pulse, field);
-    glow += blob(uv, 0.42 * vec2(sin(7.0 * t + 1.1), sin(4.0 * t + 5.0)),
+    glow += blob(uv, 0.42 * vec2(sin(7.0 * tp + 1.1), sin(4.0 * tp + 5.0)),
                  0.36 * pulse, field);
 
     /* Music sways only the tone and strength of the configured color —

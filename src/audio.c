@@ -34,6 +34,10 @@ static struct {
     int n_clients;
     bool active;
     bool dead;
+    /* Onset detection: running average of target loudness, refractory
+     * window so one transient doesn't fire multiple onsets. */
+    float level_avg;
+    int64_t last_onset_ms;
 } audio;
 
 static bool is_spotify_client(uint32_t id)
@@ -75,6 +79,18 @@ static void on_process(void *data)
         if (target > 0.02f) {
             audio.st->audio_music = 1.0f;
         }
+
+        /* Onset: this buffer's target loudness clears the running average
+         * by a margin, and we're past the refractory window. 50 ms buffers
+         * -> avg tracks slowly (0.15) so real beats still stand out over
+         * sustained loud passages. */
+        int64_t now = now_ms();
+        if (target > audio.level_avg * 1.35f + 0.05f &&
+                now - audio.last_onset_ms > 200) {
+            audio.st->audio_beat = 1.0f;
+            audio.last_onset_ms = now;
+        }
+        audio.level_avg += (target - audio.level_avg) * 0.15f;
     }
     pw_stream_queue_buffer(audio.stream, b);
 }
@@ -93,6 +109,7 @@ static void destroy_stream(void)
     audio.spotify_id = 0;
     audio.st->audio_level = 0.0f;
     audio.st->audio_music = 0.0f;
+    audio.st->audio_beat = 0.0f;
 }
 
 /* target must be the node's object.serial (or unique name) — WirePlumber
@@ -219,8 +236,11 @@ void audio_init(struct fogwall_state *st)
     st->audio_fd = -1;
     st->audio_level = 0.0f;
     st->audio_music = 0.0f;
+    st->audio_beat = 0.0f;
     audio.st = st;
     audio.active = true;
+    audio.level_avg = 0.0f;
+    audio.last_onset_ms = 0;
 
     pw_init(NULL, NULL);
     audio.loop = pw_loop_new(NULL);
@@ -267,6 +287,7 @@ void audio_set_active(struct fogwall_state *st, bool active)
     if (!active) {
         st->audio_level = 0.0f;
         st->audio_music = 0.0f;
+        st->audio_beat = 0.0f;
     }
 }
 
@@ -295,6 +316,7 @@ void audio_finish(struct fogwall_state *st)
     st->audio_fd = -1;
     st->audio_level = 0.0f;
     st->audio_music = 0.0f;
+    st->audio_beat = 0.0f;
 }
 
 #else /* !HAVE_PIPEWIRE */
@@ -304,6 +326,7 @@ void audio_init(struct fogwall_state *st)
     st->audio_fd = -1;
     st->audio_level = 0.0f;
     st->audio_music = 0.0f;
+    st->audio_beat = 0.0f;
 }
 
 void audio_dispatch(struct fogwall_state *st) { (void)st; }

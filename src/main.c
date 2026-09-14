@@ -187,6 +187,12 @@ int main(int argc, char *argv[])
                 state.audio_level = 0.0f;
             }
         }
+        if (state.audio_beat > 0.0f) {
+            state.audio_beat *= expf(-dt * 8.0f);
+            if (state.audio_beat < 0.004f) {
+                state.audio_beat = 0.0f;
+            }
+        }
         if (state.audio_music > 0.0f) {
             state.audio_music *= expf(-dt * 0.7f);
             if (state.audio_music < 0.01f) {
