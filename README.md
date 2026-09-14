@@ -54,6 +54,9 @@ missing — each feature just costs nothing without its dependency):
 - `libpipewire-0.3` (Arch: `pipewire`) — Spotify loudness reactivity and
   beat-sync.
 - `dbus-1` (Arch: `dbus`) — MPRIS album-art tint sync.
+- `libcurl` (Arch: `curl`) — fetches remote (`https://`) album art for the
+  tint sync above (what Spotify itself serves today); without it, only
+  players that expose a local `file://` art cache get tint sync.
 
 `third_party/stb_image.h` is vendored (public domain / MIT, from
 [nothings/stb](https://github.com/nothings/stb)) to decode album art for
