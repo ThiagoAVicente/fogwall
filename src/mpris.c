@@ -33,12 +33,12 @@ static bool uri_to_path(const char *uri, char *out, size_t out_sz)
     return true;
 }
 
-static void extract_dominant_color(const char *path, float rgb[3])
+static bool extract_dominant_color(const char *path, float rgb[3])
 {
     int w, h, channels;
     unsigned char *pix = stbi_load(path, &w, &h, &channels, 3);
     if (pix == NULL) {
-        return;
+        return false;
     }
     double sum[3] = { 0, 0, 0 };
     long n = (long)w * h;
@@ -49,7 +49,7 @@ static void extract_dominant_color(const char *path, float rgb[3])
     }
     stbi_image_free(pix);
     if (n == 0) {
-        return;
+        return false;
     }
     float r = (float)(sum[0] / n / 255.0);
     float g = (float)(sum[1] / n / 255.0);
@@ -66,6 +66,7 @@ static void extract_dominant_color(const char *path, float rgb[3])
         if (rgb[i] < 0.0f) rgb[i] = 0.0f;
         if (rgb[i] > 1.0f) rgb[i] = 1.0f;
     }
+    return true;
 }
 
 static void handle_art_url(const char *url)
@@ -78,8 +79,7 @@ static void handle_art_url(const char *url)
         return; /* remote art URL (non-local-caching player) — skip, keep old tint */
     }
     float rgb[3];
-    extract_dominant_color(path, rgb);
-    if (rgb[0] == 0.0f && rgb[1] == 0.0f && rgb[2] == 0.0f) {
+    if (!extract_dominant_color(path, rgb)) {
         return; /* decode failed */
     }
     snprintf(mpris.last_art_path, sizeof(mpris.last_art_path), "%s", url);
@@ -189,7 +189,12 @@ void mpris_init(struct fogwall_state *st)
         mpris.conn = NULL;
         return;
     }
-    dbus_connection_add_filter(mpris.conn, on_message, NULL, NULL);
+    if (!dbus_connection_add_filter(mpris.conn, on_message, NULL, NULL)) {
+        dbus_connection_close(mpris.conn);
+        dbus_connection_unref(mpris.conn);
+        mpris.conn = NULL;
+        return;
+    }
 
     int fd = -1;
     if (!dbus_connection_get_unix_fd(mpris.conn, &fd) || fd < 0) {
