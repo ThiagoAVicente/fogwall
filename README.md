@@ -20,12 +20,49 @@ no runtime, no scripting.
   microphone), uses 50 ms buffers (~20 wakeups/s only while audio flows),
   joins the same `poll()`, and deactivates whenever every output is paused.
   Without libpipewire or without Spotify, the feature costs nothing.
+- **Beat-sync**: layered on the same PipeWire capture — a lightweight onset
+  detector (loudness vs. a slow running average, with a 200 ms refractory
+  window so one transient doesn't double-fire) kicks a fast-decaying
+  `audio_beat` envelope on each detected beat. The kick nudges the fog
+  blobs' Lissajous path phase by a small, bounded additive offset (not a
+  scale of elapsed time, so the lurch is consistent regardless of where the
+  8-minute animation loop currently sits, and never snaps at the loop
+  wrap). No new capture stream, no new dependency — same audio path as the
+  loudness reactivity above.
+- **Album-art tint sync** (optional, D-Bus/MPRIS): watches the active
+  MPRIS player's `Metadata` property over the session bus (works with
+  Spotify, Spotify-compatible clients like fastpotify, or any other
+  MPRIS-compliant player — the D-Bus match isn't restricted to a specific
+  player's bus name). On track change, if `mpris:artUrl` is a local
+  `file://` path (as Spotify-family clients' cached art always is), it's
+  decoded and a dominant color is extracted (averaged + saturation-boosted)
+  and smoothly eased into the fog's tint over ~2 s, replacing the static
+  `--color`. Remote/http art URLs from other players are gracefully
+  skipped — the tint just stays on `--color`. No D-Bus, no compatible
+  player, or a decode failure: falls back to `--color`, zero overhead.
+  Image decoding uses a small vendored library (`third_party/stb_image.h`,
+  see below) rather than a new runtime dependency.
+- **Idle hue drift**: when nothing is playing (loudness/MPRIS both idle),
+  the tint's hue slowly rotates over ~2 minutes so a silent screen isn't
+  perfectly static — purely in the fragment shader, gated off (skipped
+  entirely, not just zeroed) whenever music is active so it never
+  interferes with the tone sway above or the album-art tint.
 
 ## Build
 
 Dependencies (Arch: all in `wayland`, `mesa`, `meson`, `ninja`, `pkgconf`):
 `libwayland-client`, `wayland-egl`, `libEGL`, `libGLESv2`, `wayland-scanner`.
 Protocol XMLs are vendored in `protocols/` — no wlr-protocols package needed.
+
+Optional, auto-detected at configure time (build and skip cleanly if
+missing — each feature just costs nothing without its dependency):
+- `libpipewire-0.3` (Arch: `pipewire`) — Spotify loudness reactivity and
+  beat-sync.
+- `dbus-1` (Arch: `dbus`) — MPRIS album-art tint sync.
+
+`third_party/stb_image.h` is vendored (public domain / MIT, from
+[nothings/stb](https://github.com/nothings/stb)) to decode album art for
+the tint-sync feature — not a system dependency, compiled straight in.
 
 ```sh
 meson setup build --buildtype=release -Db_lto=true -Db_pie=true
@@ -44,6 +81,11 @@ fogwall [--color <hex>] [--output <name>] [--fps <n>]
 | `--color <hex>` | highlight tint, e.g. `#a0c8ff` | `#ffffff` |
 | `--output <name>` | render only on this output, e.g. `eDP-1` | all outputs |
 | `--fps <n>` | frame cap (1–240) | `24` |
+
+No flags for beat-sync, album-art tint, or idle drift — like the base
+Spotify loudness reactivity, they activate automatically whenever their
+optional dependency is present and the relevant source (PipeWire audio /
+MPRIS metadata) is available, and cost nothing otherwise.
 
 Hyprland autostart:
 
