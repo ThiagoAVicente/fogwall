@@ -84,23 +84,6 @@ void main() {
     vec3 tint = mix(uHighlight, grey, 0.45 * tone);
     tint *= 1.0 - 0.20 * tone;
 
-    /* Idle drift: when nothing is playing (uMusic -> 0), slowly rotate hue
-     * so a silent screen isn't perfectly static. Integer factor 4 keeps the
-     * ~2 min rotation seamless across the iTime wrap; fades out smoothly as
-     * uMusic rises so a resumed track snaps back to the real tint. uMusic is
-     * uniform across the whole draw call, so this branch is divergence-free
-     * and skips the trig/matrix work entirely during normal playback. */
-    if (uMusic < 0.999) {
-        float drift = (1.0 - uMusic) * (4.0 * t);
-        float ca = cos(drift), sa = sin(drift);
-        mat3 hueRot = mat3(
-            0.299 + 0.701 * ca + 0.168 * sa, 0.299 - 0.299 * ca - 0.328 * sa, 0.299 - 0.300 * ca + 1.250 * sa,
-            0.587 - 0.587 * ca + 0.330 * sa, 0.587 + 0.413 * ca + 0.035 * sa, 0.587 - 0.588 * ca - 1.050 * sa,
-            0.114 - 0.114 * ca - 0.497 * sa, 0.114 - 0.114 * ca + 0.292 * sa, 0.114 + 0.886 * ca - 0.203 * sa
-        );
-        tint = clamp(hueRot * tint, 0.0, 1.0);
-    }
-
     /* black base; soft-knee so overlapping masses don't clip */
     float fog = glow * (0.30 + 0.90 * field) * (1.0 + 0.25 * uLevel);
     vec3 col = tint * (1.0 - exp(-fog * 1.4));

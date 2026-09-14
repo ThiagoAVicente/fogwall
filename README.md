@@ -42,11 +42,6 @@ no runtime, no scripting.
   player, or a decode failure: falls back to `--color`, zero overhead.
   Image decoding uses a small vendored library (`third_party/stb_image.h`,
   see below) rather than a new runtime dependency.
-- **Idle hue drift**: when nothing is playing (loudness/MPRIS both idle),
-  the tint's hue slowly rotates over ~2 minutes so a silent screen isn't
-  perfectly static — purely in the fragment shader, gated off (skipped
-  entirely, not just zeroed) whenever music is active so it never
-  interferes with the tone sway above or the album-art tint.
 
 ## Build
 
@@ -82,7 +77,7 @@ fogwall [--color <hex>] [--output <name>] [--fps <n>]
 | `--output <name>` | render only on this output, e.g. `eDP-1` | all outputs |
 | `--fps <n>` | frame cap (1–240) | `24` |
 
-No flags for beat-sync, album-art tint, or idle drift — like the base
+No flags for beat-sync or album-art tint — like the base
 Spotify loudness reactivity, they activate automatically whenever their
 optional dependency is present and the relevant source (PipeWire audio /
 MPRIS metadata) is available, and cost nothing otherwise.
