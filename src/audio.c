@@ -85,12 +85,19 @@ static void on_process(void *data)
          * -> avg tracks slowly (0.15) so real beats still stand out over
          * sustained loud passages. */
         int64_t now = now_ms();
-        if (target > audio.level_avg * 1.35f + 0.05f &&
-                now - audio.last_onset_ms > 200) {
-            audio.st->audio_beat = 1.0f;
-            audio.last_onset_ms = now;
+        if (audio.level_avg < 0.0f) {
+            /* First buffer since the stream (re)started: prime the average
+             * instead of comparing against an unset baseline of 0, which
+             * would spuriously fire an onset on almost any sound. */
+            audio.level_avg = target;
+        } else {
+            if (target > audio.level_avg * 1.35f + 0.05f &&
+                    now - audio.last_onset_ms > 200) {
+                audio.st->audio_beat = 1.0f;
+                audio.last_onset_ms = now;
+            }
+            audio.level_avg += (target - audio.level_avg) * 0.15f;
         }
-        audio.level_avg += (target - audio.level_avg) * 0.15f;
     }
     pw_stream_queue_buffer(audio.stream, b);
 }
@@ -128,6 +135,9 @@ static void create_stream(const char *target)
     if (audio.stream == NULL) {
         return;
     }
+    /* Re-prime the onset baseline for the new stream so the first buffer
+     * doesn't spuriously fire an onset against a stale/zero average. */
+    audio.level_avg = -1.0f;
     pw_stream_add_listener(audio.stream, &audio.stream_listener,
                            &stream_events, NULL);
 
@@ -239,7 +249,7 @@ void audio_init(struct fogwall_state *st)
     st->audio_beat = 0.0f;
     audio.st = st;
     audio.active = true;
-    audio.level_avg = 0.0f;
+    audio.level_avg = -1.0f;
     audio.last_onset_ms = 0;
 
     pw_init(NULL, NULL);
