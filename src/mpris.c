@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "wayland.h"
@@ -14,6 +15,14 @@
 #define STBI_ONLY_PNG
 #include "stb_image.h"
 
+#ifdef HAVE_CURL
+#include <curl/curl.h>
+
+/* Real album art is a few hundred KB at most; this is a generous cap
+ * against a malicious/misbehaving server trying to exhaust memory. */
+#define MPRIS_ART_MAX_BYTES (8 * 1024 * 1024)
+#endif
+
 static struct {
     DBusConnection *conn;
     struct fogwall_state *st;
@@ -21,9 +30,9 @@ static struct {
 } mpris;
 
 /* file:// URI -> filesystem path, in place. Only handles the plain,
- * unescaped form Spotify (and Spotify-compatible clients) emit for their
- * local art cache. Other MPRIS players may use remote (e.g. http://) art
- * URLs, which this rejects and the caller skips. */
+ * unescaped form some MPRIS players use for a local art cache. Most
+ * players (including current Spotify) instead give a remote https:// URL,
+ * handled separately via libcurl when available (see extract_dominant_color_url). */
 static bool uri_to_path(const char *uri, char *out, size_t out_sz)
 {
     if (strncmp(uri, "file://", 7) != 0) {
@@ -33,23 +42,18 @@ static bool uri_to_path(const char *uri, char *out, size_t out_sz)
     return true;
 }
 
-static bool extract_dominant_color(const char *path, float rgb[3])
+/* Shared by the file:// and https:// decode paths. */
+static bool dominant_color_from_pixels(const unsigned char *pix, long n,
+        float rgb[3])
 {
-    int w, h, channels;
-    unsigned char *pix = stbi_load(path, &w, &h, &channels, 3);
-    if (pix == NULL) {
+    if (n == 0) {
         return false;
     }
     double sum[3] = { 0, 0, 0 };
-    long n = (long)w * h;
     for (long i = 0; i < n; i++) {
         sum[0] += pix[i * 3 + 0];
         sum[1] += pix[i * 3 + 1];
         sum[2] += pix[i * 3 + 2];
-    }
-    stbi_image_free(pix);
-    if (n == 0) {
-        return false;
     }
     float r = (float)(sum[0] / n / 255.0);
     float g = (float)(sum[1] / n / 255.0);
@@ -69,18 +73,124 @@ static bool extract_dominant_color(const char *path, float rgb[3])
     return true;
 }
 
+static bool extract_dominant_color_file(const char *path, float rgb[3])
+{
+    int w, h, channels;
+    unsigned char *pix = stbi_load(path, &w, &h, &channels, 3);
+    if (pix == NULL) {
+        return false;
+    }
+    bool ok = dominant_color_from_pixels(pix, (long)w * h, rgb);
+    stbi_image_free(pix);
+    return ok;
+}
+
+#ifdef HAVE_CURL
+
+struct fetch_buf {
+    unsigned char *data;
+    size_t len;
+};
+
+static size_t curl_write_cb(void *contents, size_t size, size_t nmemb,
+        void *userp)
+{
+    struct fetch_buf *buf = userp;
+    size_t add = size * nmemb;
+    if (add > 0 && buf->len + add > MPRIS_ART_MAX_BYTES) {
+        return 0; /* abort: response too large */
+    }
+    unsigned char *grown = realloc(buf->data, buf->len + add);
+    if (grown == NULL) {
+        return 0;
+    }
+    memcpy(grown + buf->len, contents, add);
+    buf->data = grown;
+    buf->len += add;
+    return add;
+}
+
+/* https:// only, TLS verification on, bounded size and time — this fetches
+ * a URL that arrived over D-Bus from whatever MPRIS player is running, so
+ * it's treated as untrusted input: no redirect to a non-https scheme, no
+ * unbounded read, no indefinite hang. */
+static bool fetch_url(const char *url, unsigned char **out, size_t *out_len)
+{
+    if (strncmp(url, "https://", 8) != 0) {
+        return false;
+    }
+    CURL *curl = curl_easy_init();
+    if (curl == NULL) {
+        return false;
+    }
+    struct fetch_buf buf = { NULL, 0 };
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buf);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 3L);
+    curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "https");
+    curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS_STR, "https");
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "fogwall/0.1");
+
+    CURLcode res = curl_easy_perform(curl);
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+    curl_easy_cleanup(curl);
+
+    if (res != CURLE_OK || http_code != 200 || buf.data == NULL) {
+        free(buf.data);
+        return false;
+    }
+    *out = buf.data;
+    *out_len = buf.len;
+    return true;
+}
+
+static bool extract_dominant_color_url(const char *url, float rgb[3])
+{
+    unsigned char *data = NULL;
+    size_t len = 0;
+    if (!fetch_url(url, &data, &len)) {
+        return false;
+    }
+    int w, h, channels;
+    unsigned char *pix = stbi_load_from_memory(data, (int)len, &w, &h,
+                                               &channels, 3);
+    free(data);
+    if (pix == NULL) {
+        return false;
+    }
+    bool ok = dominant_color_from_pixels(pix, (long)w * h, rgb);
+    stbi_image_free(pix);
+    return ok;
+}
+
+#endif /* HAVE_CURL */
+
 static void handle_art_url(const char *url)
 {
     if (strcmp(url, mpris.last_art_path) == 0) {
         return;
     }
-    char path[1024];
-    if (!uri_to_path(url, path, sizeof(path))) {
-        return; /* remote art URL (non-local-caching player) — skip, keep old tint */
-    }
     float rgb[3];
-    if (!extract_dominant_color(path, rgb)) {
-        return; /* decode failed */
+    bool ok;
+    char path[1024];
+    if (uri_to_path(url, path, sizeof(path))) {
+        ok = extract_dominant_color_file(path, rgb);
+#ifdef HAVE_CURL
+    } else if (strncmp(url, "https://", 8) == 0) {
+        ok = extract_dominant_color_url(url, rgb);
+#endif
+    } else {
+        return; /* unsupported scheme (or no libcurl) — skip, keep old tint */
+    }
+    if (!ok) {
+        return; /* decode/fetch failed */
     }
     snprintf(mpris.last_art_path, sizeof(mpris.last_art_path), "%s", url);
     mpris.st->art_color[0] = rgb[0];
@@ -169,6 +279,10 @@ void mpris_init(struct fogwall_state *st)
     mpris.st = st;
     mpris.last_art_path[0] = '\0';
 
+#ifdef HAVE_CURL
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+#endif
+
     DBusError err;
     dbus_error_init(&err);
     mpris.conn = dbus_bus_get_private(DBUS_BUS_SESSION, &err);
@@ -226,6 +340,9 @@ void mpris_finish(struct fogwall_state *st)
         mpris.conn = NULL;
     }
     st->mpris_fd = -1;
+#ifdef HAVE_CURL
+    curl_global_cleanup();
+#endif
 }
 
 #else /* !HAVE_DBUS */

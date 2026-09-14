@@ -7,11 +7,16 @@
  * (compiled out without libdbus-1). Watches the active MPRIS player's
  * Metadata property; on track change, decodes the cover art referenced by
  * mpris:artUrl and extracts a dominant color, smoothly lerped into
- * state->cfg.color. Local file:// art (as typically exposed by Spotify and
- * Spotify-compatible clients) is decoded; remote/http art URLs from other
- * MPRIS players are gracefully skipped, leaving the previous tint in place.
- * Falls back to the static --color value with no MPRIS player, no D-Bus, or
- * a decode failure. The D-Bus connection fd joins the main poll(). */
+ * state->cfg.color. Local file:// art is read directly; remote https://
+ * art (what Spotify itself serves today) is fetched via libcurl when
+ * available (compiled out without libcurl — falls back to the static
+ * --color value, same as no MPRIS at all). The fetch is TLS-verified,
+ * https-only (including on redirect), time- and size-bounded, since the
+ * URL comes from whatever MPRIS player happens to be running — untrusted
+ * input. Falls back to --color with no MPRIS player, no D-Bus, no libcurl,
+ * or a decode/fetch failure. The D-Bus connection fd joins the main
+ * poll() — the art fetch itself is a bounded blocking call on track
+ * change, not integrated into poll(); it does not run per-frame. */
 
 struct fogwall_state;
 

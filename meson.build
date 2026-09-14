@@ -27,6 +27,11 @@ if dbus.found()
   add_project_arguments('-DHAVE_DBUS', language: 'c')
 endif
 
+curl_dep = dependency('libcurl', required: false)
+if curl_dep.found()
+  add_project_arguments('-DHAVE_CURL', language: 'c')
+endif
+
 wayland_scanner = find_program('wayland-scanner')
 python = find_program('python3')
 
@@ -81,6 +86,6 @@ executable(
     'src/mpris.c',
   ] + protocol_srcs + shader_hdrs,
   include_directories: include_directories('third_party'),
-  dependencies: [wayland_client, wayland_egl, egl, glesv2, libm, pipewire, dbus],
+  dependencies: [wayland_client, wayland_egl, egl, glesv2, libm, pipewire, dbus, curl_dep],
   install: true,
 )

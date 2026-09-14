@@ -58,8 +58,9 @@ void main() {
      * short-lived lurch in blob motion without disturbing the fog texture.
      * Additive (not multiplicative) so the kick magnitude is bounded and
      * independent of where we are in the 480s iTime cycle, with no
-     * discontinuity at the wrap point. */
-    float tp = t + 0.35 * uBeat;
+     * discontinuity at the wrap point. Small: the offset multiplies through
+     * sin(k * tp) below, so the fastest path (k=7) sees 7x this value. */
+    float tp = t + 0.05 * uBeat;
 
     /* 4 big fog masses on Lissajous paths — mismatched harmonics make each
      * one keep changing direction instead of orbiting. Music swells them. */
