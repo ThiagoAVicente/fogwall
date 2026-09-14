@@ -22,6 +22,11 @@ if pipewire.found()
   add_project_arguments('-DHAVE_PIPEWIRE', language: 'c')
 endif
 
+dbus = dependency('dbus-1', required: false)
+if dbus.found()
+  add_project_arguments('-DHAVE_DBUS', language: 'c')
+endif
+
 wayland_scanner = find_program('wayland-scanner')
 python = find_program('python3')
 
@@ -73,7 +78,9 @@ executable(
     'src/shader.c',
     'src/hypr.c',
     'src/audio.c',
+    'src/mpris.c',
   ] + protocol_srcs + shader_hdrs,
-  dependencies: [wayland_client, wayland_egl, egl, glesv2, libm, pipewire],
+  include_directories: include_directories('third_party'),
+  dependencies: [wayland_client, wayland_egl, egl, glesv2, libm, pipewire, dbus],
   install: true,
 )

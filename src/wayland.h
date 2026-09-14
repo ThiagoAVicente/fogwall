@@ -50,6 +50,12 @@ struct fogwall_state {
     float audio_level; /* loudness envelope 0..1, fast */
     float audio_music; /* "music is playing" envelope 0..1, slow release */
     float audio_beat;  /* onset kick, 0..1, fast decay (see audio.c) */
+
+    /* MPRIS album-art tint (see mpris.h); -1 when unavailable */
+    int mpris_fd;
+    float art_color[3];   /* dominant color of current album art */
+    bool art_color_valid; /* false until first successful decode */
+    float tint_color[3];  /* live, lerped toward cfg.color or art_color */
 };
 
 struct fogwall_output {

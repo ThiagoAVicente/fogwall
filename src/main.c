@@ -12,6 +12,7 @@
 #include "wayland.h"
 #include "hypr.h"
 #include "audio.h"
+#include "mpris.h"
 
 static volatile sig_atomic_t quit = 0;
 
@@ -103,13 +104,18 @@ int main(int argc, char *argv[])
     }
     hypr_init(&state);
     audio_init(&state);
+    mpris_init(&state);
+    state.tint_color[0] = state.cfg.color[0];
+    state.tint_color[1] = state.cfg.color[1];
+    state.tint_color[2] = state.cfg.color[2];
 
     const int64_t interval = 1000 / state.cfg.fps;
     int64_t last_decay_ms = now_ms();
-    struct pollfd pfds[3] = {
+    struct pollfd pfds[4] = {
         { .fd = wl_display_get_fd(state.display), .events = POLLIN },
         { .fd = state.hypr_fd, .events = POLLIN },
         { .fd = state.audio_fd, .events = POLLIN },
+        { .fd = state.mpris_fd, .events = POLLIN },
     };
 
     /* One iteration per wakeup; wakeups happen only on Wayland events
@@ -146,7 +152,8 @@ int main(int argc, char *argv[])
         /* fds may be closed at runtime; poll() ignores negative fds */
         pfds[1].fd = state.hypr_fd;
         pfds[2].fd = state.audio_fd;
-        int ret = poll(pfds, 3, timeout);
+        pfds[3].fd = state.mpris_fd;
+        int ret = poll(pfds, 4, timeout);
         if (ret < 0) {
             wl_display_cancel_read(state.display);
             if (errno == EINTR) {
@@ -172,6 +179,11 @@ int main(int argc, char *argv[])
             audio_finish(&state);
         } else if (pfds[2].revents & POLLIN) {
             audio_dispatch(&state);
+        }
+        if (pfds[3].revents & (POLLERR | POLLHUP)) {
+            mpris_finish(&state);
+        } else if (pfds[3].revents & POLLIN) {
+            mpris_dispatch(&state);
         }
 
         now = now_ms();
@@ -200,6 +212,14 @@ int main(int argc, char *argv[])
             }
         }
 
+        const float *target = state.art_color_valid ? state.art_color
+                                                      : state.cfg.color;
+        for (int i = 0; i < 3; i++) {
+            /* ~2s time constant: 1 - exp(-dt/2) */
+            state.tint_color[i] +=
+                (target[i] - state.tint_color[i]) * (1.0f - expf(-dt * 0.5f));
+        }
+
         wl_list_for_each(o, &state.outputs, link) {
             if (o->frame_ready && !o->paused &&
                     now - o->last_frame_ms >= interval) {
@@ -208,6 +228,7 @@ int main(int argc, char *argv[])
         }
     }
 
+    mpris_finish(&state);
     audio_finish(&state);
     hypr_finish(&state);
     wayland_finish(&state);
@@ -215,6 +236,7 @@ int main(int argc, char *argv[])
 
 disconnected:
     fprintf(stderr, "fogwall: lost connection to Wayland display\n");
+    mpris_finish(&state);
     audio_finish(&state);
     hypr_finish(&state);
     wayland_finish(&state);

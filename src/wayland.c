@@ -68,8 +68,8 @@ void output_render(struct fogwall_output *o)
     glUniform2f(st->u_resolution, (float)o->width, (float)o->height);
     double t = (double)(now_ms() - st->start_ms) / 1000.0;
     glUniform1f(st->u_time, (float)fmod(t, FOG_TIME_PERIOD));
-    glUniform3f(st->u_highlight, st->cfg.color[0], st->cfg.color[1],
-                st->cfg.color[2]);
+    glUniform3f(st->u_highlight, st->tint_color[0], st->tint_color[1],
+                st->tint_color[2]);
     glUniform1f(st->u_level, st->audio_level);
     glUniform1f(st->u_music, st->audio_music);
     glUniform1f(st->u_beat, st->audio_beat);
