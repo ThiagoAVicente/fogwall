@@ -1,8 +1,4 @@
-#define _GNU_SOURCE /* strcasestr */
-
-#include <math.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "wayland.h"
@@ -25,7 +21,9 @@ static struct {
 } mpris;
 
 /* file:// URI -> filesystem path, in place. Only handles the plain,
- * unescaped form Spotify emits for its local art cache. */
+ * unescaped form Spotify (and Spotify-compatible clients) emit for their
+ * local art cache. Other MPRIS players may use remote (e.g. http://) art
+ * URLs, which this rejects and the caller skips. */
 static bool uri_to_path(const char *uri, char *out, size_t out_sz)
 {
     if (strncmp(uri, "file://", 7) != 0) {
@@ -77,7 +75,7 @@ static void handle_art_url(const char *url)
     }
     char path[1024];
     if (!uri_to_path(url, path, sizeof(path))) {
-        return; /* remote art URL (non-Spotify player) — skip, keep old tint */
+        return; /* remote art URL (non-local-caching player) — skip, keep old tint */
     }
     float rgb[3];
     extract_dominant_color(path, rgb);
@@ -182,8 +180,7 @@ void mpris_init(struct fogwall_state *st)
     dbus_bus_add_match(mpris.conn,
         "type='signal',interface='org.freedesktop.DBus.Properties',"
         "member='PropertiesChanged',"
-        "path='/org/mpris/MediaPlayer2',"
-        "sender='org.mpris.MediaPlayer2.spotify'",
+        "path='/org/mpris/MediaPlayer2'",
         &err);
     if (dbus_error_is_set(&err)) {
         dbus_error_free(&err);
