@@ -85,8 +85,10 @@ void main() {
     vec3 tint = mix(uHighlight, grey, 0.45 * tone);
     tint *= 1.0 - 0.20 * tone;
 
-    /* black base; soft-knee so overlapping masses don't clip */
-    float fog = glow * (0.30 + 0.90 * field) * (1.0 + 0.25 * uLevel);
+    /* black base; soft-knee so overlapping masses don't clip. uBeat adds a
+     * brightness pulse on top of the steady loudness swell — a heartbeat-
+     * like flash on each detected beat, decaying with uBeat itself. */
+    float fog = glow * (0.30 + 0.90 * field) * (1.0 + 0.25 * uLevel + 0.4 * uBeat);
     vec3 col = tint * (1.0 - exp(-fog * 1.4));
     gl_FragColor = vec4(col, 1.0);
 }
