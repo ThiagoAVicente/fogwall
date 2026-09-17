@@ -46,6 +46,47 @@ float blob(vec2 uv, vec2 center, float radius, float field) {
     return exp(-(d * d) / (radius * radius));
 }
 
+float sdSegment(vec2 p, vec2 a, vec2 b) {
+    vec2 pa = p - a, ba = b - a;
+    float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+    return length(pa - ba * h);
+}
+
+#define BOLT_SEGS 6
+#define BOLT_BRANCH_SEGS 3
+
+/* Jagged top-to-bottom polyline (random walk per segment, seeded by
+ * `seed`) with one short branch peeling off partway down — the standard
+ * cheap approach to procedural lightning: no recursion, just two small
+ * unrolled loops of distance-to-segment. */
+float boltDist(vec2 uv, float seed) {
+    float d = 1.0e5;
+    vec2 p0 = vec2(hash(vec2(seed, 0.0)) * 1.6 - 0.8, 0.6);
+    float branchAt = floor(hash(vec2(seed, 50.0)) * float(BOLT_SEGS - 2)) + 1.0;
+    vec2 branchStart = p0;
+    for (int i = 1; i <= BOLT_SEGS; i++) {
+        float fi = float(i);
+        float y = 0.6 - fi * (1.2 / float(BOLT_SEGS));
+        float wob = (hash(vec2(seed, fi)) - 0.5) * 0.18;
+        vec2 p1 = vec2(p0.x + wob, y);
+        d = min(d, sdSegment(uv, p0, p1));
+        if (abs(fi - branchAt) < 0.5) {
+            branchStart = p1;
+        }
+        p0 = p1;
+    }
+    vec2 bp0 = branchStart;
+    float bdir = hash(vec2(seed, 99.0)) - 0.5;
+    for (int i = 1; i <= BOLT_BRANCH_SEGS; i++) {
+        float fi = float(i);
+        vec2 bp1 = bp0 + vec2(bdir * 0.12 + (hash(vec2(seed, fi + 60.0)) - 0.5) * 0.08,
+                               -0.12);
+        d = min(d, sdSegment(uv, bp0, bp1));
+        bp0 = bp1;
+    }
+    return d;
+}
+
 void main() {
     vec2 uv = (gl_FragCoord.xy - 0.5 * iResolution.xy) / iResolution.y;
     float t = iTime * TAU_OVER_PERIOD;
@@ -91,25 +132,28 @@ void main() {
     float fog = glow * (0.30 + 0.90 * field) * (1.0 + 0.25 * uLevel + 0.4 * uBeat);
     vec3 col = tint * (1.0 - exp(-fog * 1.4));
 
-    /* Lightning: ambient random strikes on a seamless 6 s time-slot
-     * schedule (480/6 = 80 slots exactly, so it never jumps at the iTime
-     * wrap), boosted by uBeat so a hard beat can also trigger/brighten a
-     * strike. Bolt position and the strike roll both come from hash(slot),
-     * so no extra CPU-side state or uniforms are needed beyond uBeat. */
+    /* Lightning: up to 3 independent bolts, each on its own seamless 6 s
+     * time-slot schedule (480/6 = 80 slots exactly, so it never jumps at
+     * the iTime wrap) with its own random strike roll — so anywhere from
+     * 0 to 3 can be lit at once. uBeat boosts all of them together, so a
+     * hard beat can trigger/brighten several simultaneously. Position,
+     * shape and strike roll all come from hash(seed), so no extra
+     * CPU-side state or uniforms are needed beyond uBeat. */
     float slot = floor(iTime / 6.0);
     float slotPhase = fract(iTime / 6.0) * 6.0;
-    float strikeRoll = hash(vec2(slot, 7.0));
-    float strikeOnset = hash(vec2(slot, 3.0)) * 3.0; /* strikes early in the slot */
-    float sinceStrike = slotPhase - strikeOnset;
-    float ambientStrike = step(strikeRoll, 0.2) * step(0.0, sinceStrike) *
-                           exp(-sinceStrike * 6.0);
-    float strike = clamp(ambientStrike + 0.6 * uBeat, 0.0, 1.0);
-
-    float boltX = hash(vec2(slot, 1.0)) * 1.6 - 0.8;
-    float boltJitter = (vnoise(vec2(uv.y * 6.0 + slot * 10.0, slot)) - 0.5) * 0.25;
-    float boltDist = abs(uv.x - (boltX + boltJitter));
-    float bolt = exp(-boltDist * boltDist * 250.0) * strike;
-    col = clamp(col + vec3(0.85, 0.90, 1.0) * bolt * 1.5, 0.0, 1.0);
+    float lightningGlow = 0.0;
+    for (int k = 0; k < 3; k++) {
+        float seed = slot + float(k) * 137.0;
+        float strikeRoll = hash(vec2(seed, 7.0));
+        float strikeOnset = hash(vec2(seed, 3.0)) * 3.0; /* strikes early in the slot */
+        float sinceStrike = slotPhase - strikeOnset;
+        float ambientStrike = step(strikeRoll, 0.15) * step(0.0, sinceStrike) *
+                               exp(-sinceStrike * 6.0);
+        float strike = clamp(ambientStrike + 0.6 * uBeat, 0.0, 1.0);
+        float d = boltDist(uv, seed);
+        lightningGlow += exp(-d * d * 900.0) * strike;
+    }
+    col = clamp(col + vec3(0.85, 0.90, 1.0) * lightningGlow * 1.3, 0.0, 1.0);
 
     gl_FragColor = vec4(col, 1.0);
 }
