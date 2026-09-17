@@ -87,6 +87,21 @@ float boltDist(vec2 uv, float seed) {
     return d;
 }
 
+/* One depth layer of falling streaks, tiled across the screen. `speed` must
+ * make `speed * 480.0` an integer number of cells so nothing pops at the
+ * iTime wrap (same trick as the Lissajous motion elsewhere in this file). */
+float rainLayer(vec2 uv, float density, float speed, float seed) {
+    vec2 st = uv * density;
+    st.y += iTime * speed;
+    vec2 cell = floor(st);
+    vec2 f = fract(st);
+    float active = step(0.7, hash(cell + seed));
+    float xOff = (hash(cell + seed + 5.0) - 0.5) * 0.6;
+    float d = abs(f.x - 0.5 - xOff);
+    float streak = smoothstep(0.05, 0.0, d) * max(1.0 - abs(f.y - 0.5) * 1.6, 0.0);
+    return streak * active;
+}
+
 void main() {
     vec2 uv = (gl_FragCoord.xy - 0.5 * iResolution.xy) / iResolution.y;
     float t = iTime * TAU_OVER_PERIOD;
@@ -154,6 +169,13 @@ void main() {
         lightningGlow += exp(-d * d * 900.0) * strike;
     }
     col = clamp(col + vec3(0.85, 0.90, 1.0) * lightningGlow * 1.3, 0.0, 1.0);
+
+    /* Rain: two depth layers (foreground closer/faster/brighter, background
+     * slower/dimmer/finer) for a cheap sense of depth. Speeds are 60/480
+     * and 30/480 of a cell per second, so both loop seamlessly. */
+    float rain = rainLayer(uv, 14.0, 60.0 / 480.0, 11.0) * 0.35 +
+                 rainLayer(uv, 8.0, 30.0 / 480.0, 71.0) * 0.20;
+    col = clamp(col + vec3(0.65, 0.75, 0.90) * rain, 0.0, 1.0);
 
     gl_FragColor = vec4(col, 1.0);
 }
