@@ -90,5 +90,26 @@ void main() {
      * like flash on each detected beat, decaying with uBeat itself. */
     float fog = glow * (0.30 + 0.90 * field) * (1.0 + 0.25 * uLevel + 0.4 * uBeat);
     vec3 col = tint * (1.0 - exp(-fog * 1.4));
+
+    /* Lightning: ambient random strikes on a seamless 6 s time-slot
+     * schedule (480/6 = 80 slots exactly, so it never jumps at the iTime
+     * wrap), boosted by uBeat so a hard beat can also trigger/brighten a
+     * strike. Bolt position and the strike roll both come from hash(slot),
+     * so no extra CPU-side state or uniforms are needed beyond uBeat. */
+    float slot = floor(iTime / 6.0);
+    float slotPhase = fract(iTime / 6.0) * 6.0;
+    float strikeRoll = hash(vec2(slot, 7.0));
+    float strikeOnset = hash(vec2(slot, 3.0)) * 3.0; /* strikes early in the slot */
+    float sinceStrike = slotPhase - strikeOnset;
+    float ambientStrike = step(strikeRoll, 0.2) * step(0.0, sinceStrike) *
+                           exp(-sinceStrike * 6.0);
+    float strike = clamp(ambientStrike + 0.6 * uBeat, 0.0, 1.0);
+
+    float boltX = hash(vec2(slot, 1.0)) * 1.6 - 0.8;
+    float boltJitter = (vnoise(vec2(uv.y * 6.0 + slot * 10.0, slot)) - 0.5) * 0.25;
+    float boltDist = abs(uv.x - (boltX + boltJitter));
+    float bolt = exp(-boltDist * boltDist * 250.0) * strike;
+    col = clamp(col + vec3(0.85, 0.90, 1.0) * bolt * 1.5, 0.0, 1.0);
+
     gl_FragColor = vec4(col, 1.0);
 }
