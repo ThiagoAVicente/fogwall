@@ -87,19 +87,24 @@ float boltDist(vec2 uv, float seed) {
     return d;
 }
 
-/* One depth layer of falling streaks, tiled across the screen. `speed` must
- * make `speed * 480.0` an integer number of cells so nothing pops at the
- * iTime wrap (same trick as the Lissajous motion elsewhere in this file). */
+/* One depth layer of falling streaks, tiled across the screen. `speed` is
+ * in cells/second and must be an integer so it travels a whole number of
+ * cells over the 480 s loop — nothing pops at the iTime wrap (same trick
+ * as the Lissajous motion elsewhere in this file). Sparse (~8% of cells)
+ * with randomized length/brightness per drop so it doesn't read as a grid. */
 float rainLayer(vec2 uv, float density, float speed, float seed) {
     vec2 st = uv * density;
     st.y += iTime * speed;
     vec2 cell = floor(st);
     vec2 f = fract(st);
-    float active = step(0.7, hash(cell + seed));
-    float xOff = (hash(cell + seed + 5.0) - 0.5) * 0.6;
+    float active = step(0.92, hash(cell + seed));
+    float xOff = (hash(cell + seed + 5.0) - 0.5) * 0.5;
+    float len = 0.2 + 0.4 * hash(cell + seed + 9.0);
+    float bright = 0.5 + 0.5 * hash(cell + seed + 13.0);
     float d = abs(f.x - 0.5 - xOff);
-    float streak = smoothstep(0.05, 0.0, d) * max(1.0 - abs(f.y - 0.5) * 1.6, 0.0);
-    return streak * active;
+    float core = smoothstep(0.02, 0.0, d);
+    float taper = smoothstep(0.0, 0.05, f.y) * smoothstep(len, len - 0.15, f.y);
+    return core * taper * active * bright;
 }
 
 void main() {
@@ -171,11 +176,11 @@ void main() {
     col = clamp(col + vec3(0.85, 0.90, 1.0) * lightningGlow * 1.3, 0.0, 1.0);
 
     /* Rain: two depth layers (foreground closer/faster/brighter, background
-     * slower/dimmer/finer) for a cheap sense of depth. Speeds are 60/480
-     * and 30/480 of a cell per second, so both loop seamlessly. */
-    float rain = rainLayer(uv, 14.0, 60.0 / 480.0, 11.0) * 0.35 +
-                 rainLayer(uv, 8.0, 30.0 / 480.0, 71.0) * 0.20;
-    col = clamp(col + vec3(0.65, 0.75, 0.90) * rain, 0.0, 1.0);
+     * slower/dimmer/finer) for a cheap sense of depth. Integer speeds loop
+     * seamlessly (always a whole number of cells over the 480 s period). */
+    float rain = rainLayer(uv, 20.0, 26.0, 11.0) * 0.12 +
+                 rainLayer(uv, 12.0, 15.0, 71.0) * 0.07;
+    col = clamp(col + vec3(0.6, 0.7, 0.85) * rain, 0.0, 1.0);
 
     gl_FragColor = vec4(col, 1.0);
 }
