@@ -102,7 +102,7 @@ float rainLayer(vec2 uv, float density, float speed, float seed) {
     float len = 0.2 + 0.4 * hash(cell + seed + 9.0);
     float bright = 0.5 + 0.5 * hash(cell + seed + 13.0);
     float d = abs(f.x - 0.5 - xOff);
-    float core = smoothstep(0.02, 0.0, d);
+    float core = smoothstep(0.035, 0.0, d);
     float taper = smoothstep(0.0, 0.05, f.y) * smoothstep(len, len - 0.15, f.y);
     return core * taper * active * bright;
 }
@@ -171,7 +171,7 @@ void main() {
                                exp(-sinceStrike * 6.0);
         float strike = clamp(ambientStrike + 0.6 * uBeat, 0.0, 1.0);
         float d = boltDist(uv, seed);
-        lightningGlow += exp(-d * d * 900.0) * strike;
+        lightningGlow += exp(-d * d * 3500.0) * strike;
     }
     col = clamp(col + vec3(0.85, 0.90, 1.0) * lightningGlow * 1.3, 0.0, 1.0);
 
